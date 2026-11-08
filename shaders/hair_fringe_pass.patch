@@ -1,0 +1,112 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 evannamari
+#
+# The license applies to the lines ADDED by this patch ("+" lines) and to this text.
+# Lines starting with a space or "-" are excerpts of EA/Maxis shader code, shown only as context so that the
+# patch can be applied. They are NOT covered by this license.
+# Apply to your own copies of the original files:  patch -p1 < hair_fringe_pass.patch
+#
+--- a/sims.matShad
++++ b/sims.matShad
+@@ -370,6 +370,11 @@
+ #set up default params
+ setb simHairFlag false
+ 
++# hair fringe pass (DX9): draw pixels with alpha <= hairSolidAlphaRef without depth write
++# hairFringeEnabled false restores vanilla behaviour (hairSolidAlphaRef 60 is the vanilla alpha threshold)
++setb hairFringeEnabled true
++seti hairSolidAlphaRef 60
++
+ define SimHair()
+    setb simHairFlag true
+ 	
+@@ -520,7 +525,7 @@
+    if (strcmp("&{alphaBlendMode}", "blend") = 0)
+ 	  alphaBlend srcFactor(srcAlpha) add dstFactor(invSrcAlpha)
+ 	  depthTest	true -enableDepthWrite true
+-	  alphaTest true 60	 	 
++	  alphaTest true $hairSolidAlphaRef
+      alphaTestFunction acceptIfGreater	
+    elseif (strcmp("&{alphaBlendMode}", "additive") = 0)
+      alphaBlend srcFactor(srcAlpha) add dstFactor(one)
+--- a/DX9SimMaterials.matShad
++++ b/DX9SimMaterials.matShad
+@@ -247,7 +247,43 @@
+ 					endif
+ 				endif
+ 					
++				# hair: optional second pass for pixels with alpha <= $hairSolidAlphaRef (soft fringe, no depth write)
++				setb hairFringeActive false
++				if ($simHairFlag and $hairFringeEnabled and strcmp("${stdMatAlphaBlendMode}", "blend") = 0)
++					setb hairFringeActive true
++					seti hairFringeRef ($hairSolidAlphaRef + 1)
++					# SimMaterialTransformSetupDX9 multiplies stdMatDiffCoef by simMaterialLightingScale: remember the original
++					setv3 hairSavedDiffCoef (($stdMatDiffCoef).xyz)
++				endif
++
++				create SimStandardMainPassDX9(false)
++
++				if ($hairFringeActive)
++					create SimStandardMainPassDX9(true)
++				endif
++
++
++			end # end shader
++			
++		endif #shadow or not
++
++	end #end the material
++	
++enddef
++
++
++
++
++define SimStandardMainPassDX9(isFringe)
++
+ 				pass
++
++					# fringe pass: undo what the main pass changed in global variables
++					if (&isFringe)
++						seti perPixelLightCount 0
++						seti totalLights ($distantLightCount + $pointLightCount + $spotLightCount)
++						setv3 stdMatDiffCoef (($hairSavedDiffCoef).xyz)
++					endif
+ 								
+ 					fillmode $stdMatFillMode					
+ 					
+@@ -262,7 +298,14 @@
+ 					create NonStandardLighting()
+ 					
+ 
+-					if ($simHairFlag)               
++					if (&isFringe)
++						# hair fringe: only pixels the solid pass rejected (alpha <= $hairSolidAlphaRef), no depth write
++						alphaBlend srcFactor(srcAlpha) add dstFactor(invSrcAlpha)
++						depthTest true -enableDepthWrite false
++						depthTestFunction acceptIfLessOrEqual
++						alphaTest true $hairFringeRef
++						alphaTestFunction acceptIfLess
++					elseif ($simHairFlag)               
+ 					   create SimHairAlphaState($stdMatAlphaBlendMode)
+ 					else
+ 					   create StandardShaderFBAlphaState($stdMatAlphaBlendMode)
+@@ -318,18 +361,9 @@
+ 											
+ 				end #end the pass
+ 
+-
+-			end # end shader
+-			
+-		endif #shadow or not
+-
+-	end #end the material
+-	
+ enddef
+ 
+ 
+-
+-
+ define SimStandardPixelShaderDX9(normalMapFlag pixelLightCount specularMask)
+ 
+ 	bindConstants 15 -bindingID immediateData -data ($finalShaderDiffuse, $stdMatAlphaMultiplier) -constantType float
