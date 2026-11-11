@@ -17,7 +17,7 @@ In the original game, hair pixels with an alpha value (opacity) of 60 or less ou
 
 Use **one** of them, not both: the soft edge would be drawn twice.
 
-ASI downloads are on the [Releases](../../releases) page. The shader package is shared separately.
+ASI downloads are on the [Releases](../../releases) page. The shader package is shared separately: https://evannamari.tumblr.com/post/833020029518921728/ts2-enhanced-hair-shaders.
 
 ## Status
 
